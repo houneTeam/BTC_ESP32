@@ -2,15 +2,26 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <TFT_eSPI.h> // Библиотека для дисплея
+#include <XPT2046_Touchscreen.h>
 
 // Настройки Wi-Fi
 const char* ssid = "";
 const char* password = "";
 
-// Binance API для получения данных о свечах
-const char* binanceAPI = "https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=20";
+// Binance symbols and index
+const char* symbols[] = {"BTCUSDT", "ETHUSDT", "BNBUSDT"};
+int symbolIndex = 0;
+const int symbolCount = sizeof(symbols) / sizeof(symbols[0]);
+
+// Dynamic Binance API URL
+String binanceAPI(String symbol) {
+    return String("https://api.binance.com/api/v3/klines?symbol=") + symbol + "&interval=1m&limit=20";
+}
+
 
 TFT_eSPI tft = TFT_eSPI(); // Инициализация дисплея
+#define TOUCH_CS_PIN 8
+XPT2046_Touchscreen ts(TOUCH_CS_PIN);
 
 // Параметры графика
 const int graphX = 0;
@@ -38,6 +49,8 @@ void setup() {
   tft.init();
   tft.setRotation(3);  // Повернуть экран на 180 градусов
   tft.fillScreen(TFT_BLACK);
+  ts.begin();
+  ts.setRotation(1);
 
   // Подключение к Wi-Fi
   connectToWiFi();
@@ -49,6 +62,14 @@ void setup() {
 }
 
 void loop() {
+  if (ts.touched()) {
+    while (ts.touched()) delay(10); // Wait for release
+    symbolIndex = (symbolIndex + 1) % symbolCount;
+    if (fetchCandleData()) {
+      drawCandlestickChart();
+    }
+    return; // Skip timed update after touch
+  }
   unsigned long currentMillis = millis();
   if (currentMillis - lastUpdate >= updateInterval) {
     lastUpdate = currentMillis;
@@ -83,7 +104,7 @@ void connectToWiFi() {
 bool fetchCandleData() {
   if (WiFi.status() == WL_CONNECTED) {
     HTTPClient http;
-    http.begin(binanceAPI);
+    http.begin(binanceAPI(symbols[symbolIndex]));
     int httpResponseCode = http.GET();
 
     if (httpResponseCode == 200) {
@@ -151,5 +172,5 @@ void drawCandlestickChart() {
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextSize(2);
   tft.setCursor(10, 0);
-  tft.printf("BTC: %.2f", candles[19].close); // Текущая цена
+  tft.printf("%s: %.2f", symbols[symbolIndex], candles[19].close); // Текущая цена
 }
